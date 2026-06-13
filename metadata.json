@@ -1,0 +1,6 @@
+{
+  "name": "Myraa",
+  "description": "Myraa - Real-time, voice-to-voice AI companion with ultra-low latency voice interaction.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
