@@ -211,13 +211,8 @@ export default function App() {
   };
 
   const startFrameCapture = () => {
-    if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
-    frameIntervalRef.current = window.setInterval(() => {
-      // Only capture if websocket is connected, camera is active, AND we are analyzing vision (a recent query)
-      if (stateRef.current !== "disconnected" && isCameraActive && isAnalyzingVisionRef.current) {
-        sendSingleFrame();
-      }
-    }, VISION_FRAME_INTERVAL_MS);
+    // Note: AI vision frame capture is intentionally disabled per user request,
+    // preserving only the local camera feed and frontend framework.
   };
 
   const stopFrameCapture = () => {
