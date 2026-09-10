@@ -32,7 +32,8 @@ import {
   Database,
   Target,
   Sliders,
-  Clock
+  Clock,
+  Brain
 } from "lucide-react";
 import { AudioPlayer } from "./lib/AudioPlayer";
 import { AudioStreamer } from "./lib/AudioStreamer";
@@ -53,6 +54,13 @@ interface ChatMessage {
   timestamp: string;
 }
 
+interface Memory {
+  id: string;
+  content: string;
+  category?: string;
+  timestamp: number;
+}
+
 export default function App() {
   const [state, setState] = useState<CallState>("disconnected");
   const [volume, setVolume] = useState<number>(0); // 0 to 100
@@ -60,6 +68,8 @@ export default function App() {
   const [toolCalls, setToolCalls] = useState<ToolNotification[]>([]);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [showInfo, setShowInfo] = useState<boolean>(false);
+  const [showMemory, setShowMemory] = useState<boolean>(false);
+  const [memories, setMemories] = useState<Memory[]>([]);
 
   // High-frequency state refs for smooth loop reading without component effect thrashing
   const stateRef = useRef<CallState>(state);
@@ -117,6 +127,25 @@ export default function App() {
   }, [isMuted]);
 
   // Custom dynamic helper is computed on-the-fly inside the render tree
+
+  // Fetch memories
+  const fetchMemories = async () => {
+    try {
+      const response = await fetch("/api/memory");
+      if (response.ok) {
+        const data = await response.json();
+        setMemories(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch memories:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (showMemory) {
+      fetchMemories();
+    }
+  }, [showMemory]);
 
   useEffect(() => {
     return () => {
@@ -314,7 +343,7 @@ export default function App() {
   };
 
   // Automated general intelligent response simulator for typing conversations
-  const executeTextMessage = (text: string) => {
+  const executeTextMessage = async (text: string) => {
     if (!text.trim()) return;
 
     // Add user message to transmission log
@@ -330,7 +359,7 @@ export default function App() {
     setState("thinking");
 
     // Set a quick simulated thinking delay with contextual response answers
-    setTimeout(() => {
+    setTimeout(async () => {
       let replyMarkdown = "";
       const query = text.toLowerCase();
 
@@ -355,6 +384,32 @@ I'll parse vocal nuances on the fly. Let's communicate!`;
 I am parsing your input sequence through my cognitive matrices. In standby keyboard terminal mode, I can help you compile ideas, execute strategies, or solve research files. 
 
 For full conversational immersion, activate the **Start Link** voice bridge! Let me know if you would like me to specialize on a particular topic.`;
+      }
+
+      // Memory test endpoints trigger for typing interaction
+      const lowerQuery = text.toLowerCase();
+      if (lowerQuery.startsWith("remember that ")) {
+         const fact = text.substring("remember that ".length).trim();
+         if (fact) {
+           fetch("/api/memory", {
+             method: "POST",
+             headers: { "Content-Type": "application/json" },
+             body: JSON.stringify({ content: fact })
+           }).then(() => fetchMemories());
+           replyMarkdown = `I have updated my long-term memory with: "${fact}". I will remember this for future sessions.`;
+         }
+      } else if (lowerQuery === "show my memories" || lowerQuery === "what do you remember about me?") {
+         try {
+           const response = await fetch("/api/memory");
+           const data = await response.json();
+           if (data && data.length > 0) {
+              replyMarkdown = "Here is what I remember about you:\\n" + data.map((m: any) => `- ${m.content}`).join("\\n");
+           } else {
+              replyMarkdown = "I don't have any specific facts saved in my long-term memory yet.";
+           }
+         } catch(e) {
+           replyMarkdown = "I encountered an error accessing my memory banks.";
+         }
       }
 
       const myraaMsg: ChatMessage = {
@@ -705,6 +760,19 @@ For full conversational immersion, activate the **Start Link** voice bridge! Let
 
         {/* Right: Time, security latency & action indicators */}
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => setShowMemory(!showMemory)}
+            className={`p-2 rounded-lg border transition-all flex items-center gap-2 ${
+              showMemory
+                ? "bg-[#7C5CFF]/20 border-[#7C5CFF]/40 text-[#7C5CFF]"
+                : "bg-[#0B1220]/75 border-slate-800/80 text-slate-400 hover:text-[#7C5CFF]"
+            }`}
+            title="Memory Bank"
+          >
+            <Brain className="w-4 h-4" />
+            <span className="hidden sm:inline-block text-[10px] font-orbitron uppercase tracking-widest font-bold">Memory</span>
+          </button>
+
           <div className="bg-[#0B1220]/75 border border-slate-800/80 px-4 py-1.5 rounded-lg flex items-center gap-2">
             <Clock className="w-3.5 h-3.5 text-[#00D4FF] animate-pulse" />
             <span className="text-xs font-mono tracking-wider text-[#00D4FF] font-semibold">
@@ -838,6 +906,50 @@ For full conversational immersion, activate the **Start Link** voice bridge! Let
             )}
           </div>
         </div>
+
+        {/* Memory Modal Overlay */}
+        <AnimatePresence>
+          {showMemory && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="absolute top-20 right-6 w-80 bg-[#0B1220]/95 backdrop-blur-2xl border border-[#7C5CFF]/30 rounded-xl shadow-[0_8px_32px_rgba(124,92,255,0.15)] z-50 overflow-hidden flex flex-col max-h-[60vh]"
+            >
+              <div className="p-3 border-b border-[#7C5CFF]/20 flex items-center justify-between bg-[#7C5CFF]/5">
+                <div className="flex items-center gap-2 text-[#7C5CFF]">
+                  <Brain className="w-4 h-4" />
+                  <span className="text-xs font-orbitron font-bold uppercase tracking-widest">Core Memories</span>
+                </div>
+                <button onClick={() => setShowMemory(false)} className="text-slate-400 hover:text-white">✕</button>
+              </div>
+              <div className="p-3 overflow-y-auto space-y-2 text-xs font-mono">
+                {memories.length === 0 ? (
+                  <div className="text-slate-500 text-center py-4 italic">No long-term memories stored yet.</div>
+                ) : (
+                  memories.map(m => (
+                    <div key={m.id} className="p-2 bg-slate-900/50 border border-slate-800 rounded group flex items-start justify-between gap-2">
+                      <div className="flex-1">
+                        {m.category && <span className="text-[9px] text-[#7C5CFF] uppercase tracking-wider block mb-1">[{m.category}]</span>}
+                        <span className="text-slate-300 break-words">{m.content}</span>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          await fetch(`/api/memory/${m.id}`, { method: 'DELETE' });
+                          fetchMemories();
+                        }}
+                        className="text-red-500/50 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                        title="Forget this memory"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ================= SECURE WEB TOOL POP-OUT RETRY BANNER ================= */}
         {toolCalls.length > 0 && (

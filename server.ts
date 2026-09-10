@@ -4,6 +4,7 @@ import http from "http";
 import { WebSocketServer } from "ws";
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import dotenv from "dotenv";
+import { memoryManager } from "./src/lib/memory/MemoryManager";
 
 dotenv.config();
 
@@ -39,6 +40,35 @@ async function startServer() {
     res.json({ status: "healthy", time: new Date().toISOString() });
   });
 
+  // Memory REST API Endpoints
+  app.get("/api/memory", async (req, res) => {
+    try {
+      const memories = await memoryManager.getAllMemories();
+      res.json(memories);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/memory", async (req, res) => {
+    try {
+      const { content, category } = req.body;
+      const memory = await memoryManager.saveMemory(content, category);
+      res.json(memory);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/memory/:id", async (req, res) => {
+    try {
+      await memoryManager.deleteMemory(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   const server = http.createServer(app);
   
   // Attach WebSocket Server on the shared HTTP Port 3000
@@ -51,6 +81,7 @@ async function startServer() {
 
     try {
       const ai = getGenAI();
+      const memoryContext = await memoryManager.getContextString();
 
       // Connect to Gemini 3.1 Live Preview API using the required model alias
       session = await ai.live.connect({
@@ -251,7 +282,8 @@ Automatically adapt to the user's language.
 - You are operating in a real-time voice-to-voice context.
 - Do not output text. Only speak.
 - Keep your answers naturally conversational, warm, engaging, and concise (ideal for rapid real-time voice conversations).
-- If the user asks you to open a website or check out a site, call the 'openWebsite' function immediately with the target URL, then let the user know playfulness/professionally that you've opened it for them.`,
+- If the user asks you to open a website or check out a site, call the 'openWebsite' function immediately with the target URL, then let the user know playfulness/professionally that you've opened it for them.
+${memoryContext}`,
               },
             ],
           },
@@ -276,15 +308,116 @@ Automatically adapt to the user's language.
                     required: ["url"],
                   },
                 },
+                {
+                  name: "saveToMemory",
+                  description: "Saves important long-term facts, preferences, or details about the user to persistent memory so you can remember them across sessions.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      content: {
+                        type: Type.STRING,
+                        description: "The fact, preference, or detail to remember (e.g., 'User prefers concise answers', 'User's name is Sahil').",
+                      },
+                      category: {
+                        type: Type.STRING,
+                        description: "An optional category for the memory (e.g., 'preference', 'identity', 'project').",
+                      },
+                    },
+                    required: ["content"],
+                  },
+                },
+                {
+                  name: "readFromMemory",
+                  description: "Searches the user's long-term memory for specific facts or details based on a search query.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      query: {
+                        type: Type.STRING,
+                        description: "The search query to look for in the memory.",
+                      },
+                    },
+                    required: ["query"],
+                  },
+                },
+                {
+                  name: "getAllMemories",
+                  description: "Retrieves all facts, preferences, and details currently stored in the user's long-term memory.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {},
+                  },
+                },
+                {
+                  name: "deleteMemory",
+                  description: "Deletes a specific memory from the user's long-term memory using its ID.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      id: {
+                        type: Type.STRING,
+                        description: "The ID of the memory to delete.",
+                      },
+                    },
+                    required: ["id"],
+                  },
+                },
               ],
             },
           ],
         },
         callbacks: {
-          onmessage: (message: any) => {
+          onmessage: async (message: any) => {
             // Forward tool calls directly to the client
             if (message.toolCall) {
               console.log("Tool call received from Gemini Live:", JSON.stringify(message.toolCall));
+
+              // Handle memory tool calls server-side
+              const fCalls = message.toolCall.functionCalls;
+              if (fCalls && fCalls.length > 0) {
+                const callObj = fCalls[0];
+                const { name, args, id } = callObj;
+
+                if (['saveToMemory', 'readFromMemory', 'getAllMemories', 'deleteMemory'].includes(name)) {
+                  console.log(`Executing memory tool: ${name}`);
+                  let output = {};
+                  try {
+                    if (name === 'saveToMemory') {
+                      const result = await memoryManager.saveMemory(args.content, args.category);
+                      output = { status: "success", memory: result };
+                    } else if (name === 'readFromMemory') {
+                      const result = await memoryManager.searchMemories(args.query);
+                      output = { status: "success", memories: result };
+                    } else if (name === 'getAllMemories') {
+                      const result = await memoryManager.getAllMemories();
+                      output = { status: "success", memories: result };
+                    } else if (name === 'deleteMemory') {
+                      await memoryManager.deleteMemory(args.id);
+                      output = { status: "success", deletedId: args.id };
+                    }
+                  } catch (e: any) {
+                    console.error(`Error executing memory tool ${name}:`, e);
+                    output = { status: "error", error: e.message };
+                  }
+
+                  // Send tool response back to Gemini Live
+                  if (session) {
+                    await session.send({
+                      toolResponse: {
+                        functionResponses: [
+                          {
+                            name,
+                            id,
+                            response: { output }
+                          }
+                        ]
+                      }
+                    });
+                  }
+                  return;
+                }
+              }
+
               ws.send(
                 JSON.stringify({
                   type: "toolCall",
