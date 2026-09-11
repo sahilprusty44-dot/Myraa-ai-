@@ -59,6 +59,9 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [toolCalls, setToolCalls] = useState<ToolNotification[]>([]);
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [visionActive, setVisionActive] = useState<boolean>(false);
+  const screenVideoRef = useRef<HTMLVideoElement>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   const [showInfo, setShowInfo] = useState<boolean>(false);
 
   // High-frequency state refs for smooth loop reading without component effect thrashing
@@ -125,6 +128,49 @@ export default function App() {
   }, []);
 
   // Connect WebSocket session to full-stack endpoint
+
+  // ================= VISION (SCREEN CAPTURE) LOGIC =================
+  const startVision = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false
+      });
+      screenStreamRef.current = stream;
+      if (screenVideoRef.current) {
+        screenVideoRef.current.srcObject = stream;
+      }
+      setVisionActive(true);
+
+      // Handle user stopping screen share via OS/browser native controls
+      stream.getVideoTracks()[0].onended = () => {
+        stopVision();
+      };
+    } catch (err: any) {
+      console.error("Failed to start vision screen share:", err);
+      // Usually user cancelled permission, just silently fail or show toast
+    }
+  };
+
+  const stopVision = () => {
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(track => track.stop());
+      screenStreamRef.current = null;
+    }
+    if (screenVideoRef.current) {
+      screenVideoRef.current.srcObject = null;
+    }
+    setVisionActive(false);
+  };
+
+  const toggleVision = () => {
+    if (visionActive) {
+      stopVision();
+    } else {
+      startVision();
+    }
+  };
+
   const connectSession = async () => {
     setErrorMsg(null);
     setState("connecting");
@@ -335,11 +381,11 @@ export default function App() {
       const query = text.toLowerCase();
 
       if (query.includes("hello") || query.includes("hey") || query.includes("namaste") || query.includes("hii")) {
-        replyMarkdown = `Hello! I am **MYRAA**, your personal operating system companion. 
+        replyMarkdown = `Hello! I am **MYRAA**, your personal operating system companion.
 
 How can I help you today? You can activate the physical **Start Link** button above to open an immersive, real-time voice channel so we can talk directly! Or feel free to query my neural bank here via standard input.`;
       } else if (query.includes("who are you") || query.includes("your name") || query.includes("what is myraa")) {
-        replyMarkdown = `I am **MYRAA** (Multi-agent Responsive Autonomous Assistant), your futuristic quantum AI companion. 
+        replyMarkdown = `I am **MYRAA** (Multi-agent Responsive Autonomous Assistant), your futuristic quantum AI companion.
 
 My architecture is designed to manage advanced streams, retrieve knowledge parameters dynamically, and host voice link protocols (PCM16 // 14ms latency) using Gemini's most expressively synced acoustic kernels.`;
       } else if (query.includes("voice") || query.includes("call") || query.includes("connect")) {
@@ -350,9 +396,9 @@ My architecture is designed to manage advanced streams, retrieve knowledge param
 
 I'll parse vocal nuances on the fly. Let's communicate!`;
       } else {
-        replyMarkdown = `Affirmative! Received query parameter: _"${text}"_. 
+        replyMarkdown = `Affirmative! Received query parameter: _"${text}"_.
 
-I am parsing your input sequence through my cognitive matrices. In standby keyboard terminal mode, I can help you compile ideas, execute strategies, or solve research files. 
+I am parsing your input sequence through my cognitive matrices. In standby keyboard terminal mode, I can help you compile ideas, execute strategies, or solve research files.
 
 For full conversational immersion, activate the **Start Link** voice bridge! Let me know if you would like me to specialize on a particular topic.`;
       }
@@ -821,6 +867,22 @@ For full conversational immersion, activate the **Start Link** voice bridge! Let
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0 justify-end">
+          {/* Vision Screen Capture Toggle */}
+          <button
+            onClick={toggleVision}
+            className={`px-3 py-1.5 rounded-md border flex items-center gap-1.5 transition-all mr-2 ${
+              visionActive
+                ? "bg-[#00D4FF]/20 border-[#00D4FF]/50 text-[#00D4FF]"
+                : "bg-transparent border-slate-700 text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <span className="font-orbitron text-[9px] uppercase tracking-wider font-bold">
+              Vision {visionActive ? "ON" : "OFF"}
+            </span>
+            {visionActive && (
+              <div className="w-1.5 h-1.5 rounded-full bg-[#00D4FF] animate-pulse shadow-[0_0_8px_rgba(0,212,255,0.8)]" />
+            )}
+          </button>
             {state === "disconnected" ? (
               <button
                 onClick={connectSession}
