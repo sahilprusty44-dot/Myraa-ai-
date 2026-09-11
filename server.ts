@@ -1,5 +1,5 @@
 
-# Add deprecation notice
+// Add deprecation notice
 // DEPRECATED: This Node.js backend is superseded by the Python backend in main.py
 import express from "express";
 import path from "path";
